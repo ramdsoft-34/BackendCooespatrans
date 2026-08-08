@@ -10,15 +10,6 @@ const EMPRESAS = [
   'ALPINA',
 ];
 
-const novedadSchema = new mongoose.Schema(
-  {
-    planilla: { type: String, trim: true, unique: true, sparse: true },
-    descripcion: { type: String, trim: true, default: '' },
-    valor: { type: Number, default: 0 },
-  },
-  { _id: false }
-);
-
 const planillaCorbetaSchema = new mongoose.Schema(
   {
     // ── Metadatos ────────────────────────────────────────────────────────────
@@ -38,23 +29,16 @@ const planillaCorbetaSchema = new mongoose.Schema(
       required: [true, 'La planilla debe estar asociada a una empresa'],
     },
 
-    // ── Datos Mula ───────────────────────────────────────────────────────────
+    // ── Datos principales ────────────────────────────────────────────────────
     planilla: { type: String, trim: true },
-    placaMula: { type: String, trim: true },
-    nombreConductorMula: { type: String, trim: true },
-    nroFacturaMula: { type: String, trim: true },
-    novedadesAverias: { type: String, trim: true },
-    valorAverias: { type: Number, default: 0 },
-    novedades: { type: [novedadSchema], default: [] },
 
     // ── Datos Vehículo y Ruta ────────────────────────────────────────────────
     conductorRuta: { type: String, trim: true },
     placaTrasbordo: { type: String, trim: true },
-    planillaTrasbordo: { type: String, trim: true },
     tipoViaje: {
       type: String,
       enum: ['Urbano', 'URBANO', 'Correría', 'CORRERÍA', 'CORRERIA', ''],
-      default: ''
+      default: '',
     },
     nroManifiesto: { type: String, trim: true },
 
@@ -75,23 +59,8 @@ const planillaCorbetaSchema = new mongoose.Schema(
     ajusteAutorizado: { type: Number, default: 0 },
 
     // ── Legalización ─────────────────────────────────────────────────────────
-    fechaLegalizacion: { type: Date },
     fechaLegalizacionReal: { type: Date },
     estadoLegalizacion: { type: String, trim: true },
-    nroFacturaCorbeta: { type: String, trim: true },
-    valorFacturaCorbeta: { type: Number, default: 0 },
-    observaciones: { type: String, trim: true },
-    novedadesLegalizacion: { type: [novedadSchema], default: [] },
-
-    // ── Pago Corbeta ─────────────────────────────────────────────────────────
-    nroFacturaPago: { type: String, trim: true },
-    fechaPago: { type: Date },
-    valorPagado: { type: Number, default: 0 },
-    utilidad: { type: Number, default: 0 },   // calculado: flete + ajusteAutorizado
-    observacionesCruze: { type: String, trim: true },
-    // ── Credito, contado  ──────────────────────────────────────────────────────────────────
-    credito: { type: Number, default: 0 },
-    contado: { type: Number, default: 0 },
 
     // ── Archivo adjunto ──────────────────────────────────────────────────────
     archivoPlanilla: { type: String, trim: true },
@@ -103,10 +72,7 @@ const planillaCorbetaSchema = new mongoose.Schema(
 planillaCorbetaSchema.pre('save', function (next) {
 
   // 1. plazoMaximo ← tipoViaje
-  if (
-    this.tipoViaje === 'Urbano' ||
-    this.tipoViaje === 'URBANO'
-  ) {
+  if (this.tipoViaje === 'Urbano' || this.tipoViaje === 'URBANO') {
     this.plazoMaximo = 2;
   } else if (
     this.tipoViaje === 'Correría' ||
@@ -144,11 +110,6 @@ planillaCorbetaSchema.pre('save', function (next) {
   // 4. saldoPagar = base - anticipo - retencion
   this.saldoPagar = parseFloat(
     (base - (this.anticipo || 0) - this.retencion).toFixed(2)
-  );
-
-  // 5. utilidad = valorPagado − (flete + ajusteAutorizado)
-  this.utilidad = parseFloat(
-    ((this.valorPagado || 0) - base).toFixed(2)
   );
 
   next();

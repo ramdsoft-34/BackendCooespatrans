@@ -6,29 +6,17 @@ const EMPRESAS = PlanillaCorbeta.EMPRESAS;
 
 // ── Campos bloqueables ────────────────────────────────────────────────────────
 const LOCKABLE_FIELDS = [
-  'planilla', 'empresa', 'placaMula', 'nombreConductorMula', 'nroFacturaMula',
-  'novedadesAverias', 'valorAverias',
-  'conductorRuta', 'placaTrasbordo', 'planillaTrasbordo',
+  'planilla', 'empresa',
+  'conductorRuta', 'placaTrasbordo',
   'tipoViaje', 'nroManifiesto',
   'fechaSalidaRuta', 'ruta',
   'flete', 'anticipo', 'ajusteAutorizado',
-  'fechaLegalizacion',
   'fechaLegalizacionReal',
   'estadoLegalizacion',
-  'nroFacturaCorbeta', 'valorFacturaCorbeta', 'observaciones',
-  'nroFacturaPago', 'fechaPago', 'valorPagado', 'observacionesCruze',
-  'credito', 'contado',
 ];
 
 const MONEY_FIELDS = new Set([
-  'flete', 'anticipo', 'ajusteAutorizado', 'valorAverias', 'valorPagado',
-  'valorFacturaCorbeta',
-  'credito', 'contado',
-]);
-
-const CALCULATED_FIELDS = new Set([
-  'plazoMaximo', 'limiteEntrega', 'alertaLegalizacion',
-  'retencion', 'saldoPagar', 'utilidad',
+  'flete', 'anticipo', 'ajusteAutorizado',
 ]);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -49,28 +37,14 @@ const pickLockable = (body) => {
   return fields;
 };
 
-const parseNovedades = (arr) =>
-  (Array.isArray(arr) ? arr : []).map((n) => ({
-    planilla: n.planilla || '',
-    descripcion: n.descripcion || '',
-    valor: parseMoney(n.valor),
-  }));
-
 // ── Helpers de roles ──────────────────────────────────────────────────────────
-// Acceso global: puede ver/filtrar todas las sedes
 const isGlobal = (role) => role === 'admin' || role === 'user' || role === 'adminSede' || role === 'coordLogistico';
-
-// Acceso privilegiado: puede crear/editar/eliminar sin restricción de campos bloqueados
-// admin y adminSede tienen estos permisos (adminSede solo dentro de su sede)
 const isPrivileged = (role) => role === 'admin' || role === 'user' || role === 'adminSede' || role === 'coordLogistico';
-
-// Puede eliminar registros
 const canDelete = (role) => role === 'admin' || role === 'user' || role === 'adminSede' || role === 'coordLogistico';
 
-// Resuelve la sede a filtrar según el rol del usuario
 const resolveSede = (user, querySede) => {
-  if (isGlobal(user.role)) return querySede || null;   // admin/user: opcional por query
-  return user.sedeNombre || null;                       // sede/adminSede: siempre su sede
+  if (isGlobal(user.role)) return querySede || null;
+  return user.sedeNombre || null;
 };
 
 // ── GET /api/planillas ────────────────────────────────────────────────────────
@@ -79,19 +53,17 @@ exports.getAll = async (req, res) => {
     const filter = {};
 
     if (isGlobal(req.user.role)) {
-      // admin / user: excluir sedes desactivadas de la vista consolidada
       const sedesInactivas = (await SedeConfig.find({ activa: false })).map((s) => s.nombre);
 
       if (req.query.sede) {
         if (sedesInactivas.includes(req.query.sede)) {
-          return res.json([]); // esa sede está oculta en este momento
+          return res.json([]);
         }
         filter.sede = req.query.sede;
       } else if (sedesInactivas.length) {
         filter.sede = { $nin: sedesInactivas };
       }
     } else {
-      // sede / adminSede: solo ven su propia sede (sin cambios, no afectado por el switch)
       if (!req.user.sedeNombre)
         return res.status(403).json({
           message: 'Tu cuenta no tiene una sede asignada. Contacta al administrador.',
@@ -118,7 +90,6 @@ exports.getById = async (req, res) => {
 
     if (!doc) return res.status(404).json({ message: 'Planilla no encontrada' });
 
-    // Solo admin/user pueden ver planillas de cualquier sede
     if (!isGlobal(req.user.role) && doc.sede !== req.user.sedeNombre)
       return res.status(403).json({ message: 'Sin acceso' });
 
@@ -135,10 +106,8 @@ exports.create = async (req, res) => {
     let sede;
 
     if (isGlobal(req.user.role)) {
-      // admin / user: pueden especificar cualquier sede en el body
       sede = req.body.sede || null;
     } else {
-      // sede / adminSede: solo pueden crear en su propia sede
       sede = req.user.sedeNombre;
     }
 
@@ -153,19 +122,6 @@ exports.create = async (req, res) => {
         message: 'Debes seleccionar una empresa válida para la planilla.',
       });
     }
-    // ───────────────────────────────────────────────────────────────────
-
-    // novedades (mula)
-    if (Array.isArray(req.body.novedades)) {
-      fields.novedades = parseNovedades(req.body.novedades);
-    }
-
-    // novedadesLegalizacion
-    if (Array.isArray(req.body.novedadesLegalizacion)) {
-      fields.novedadesLegalizacion = parseNovedades(
-        req.body.novedadesLegalizacion.slice(0, 5)
-      );
-    }
 
     const lockedFields = LOCKABLE_FIELDS.filter(
       (f) => fields[f] !== undefined && hasValue(fields[f])
@@ -174,15 +130,14 @@ exports.create = async (req, res) => {
     // ── Validar planilla única ──────────────────────────────────────────
     if (fields.planilla) {
       const existe = await PlanillaCorbeta.findOne({
-        planilla: fields.planilla.trim().toUpperCase()
+        planilla: fields.planilla.trim().toUpperCase(),
       });
       if (existe) {
         return res.status(400).json({
-          message: `La planilla "${fields.planilla}" ya existe. No se permiten duplicados.`
+          message: `La planilla "${fields.planilla}" ya existe. No se permiten duplicados.`,
         });
       }
     }
-    // ───────────────────────────────────────────────────────────────────
 
     const doc = new PlanillaCorbeta({
       sede,
@@ -206,7 +161,6 @@ exports.update = async (req, res) => {
     const doc = await PlanillaCorbeta.findById(req.params.id);
     if (!doc) return res.status(404).json({ message: 'Planilla no encontrada' });
 
-    // Verificar acceso a la sede
     if (!isGlobal(req.user.role) && doc.sede !== req.user.sedeNombre)
       return res.status(403).json({ message: 'Sin acceso' });
 
@@ -218,27 +172,24 @@ exports.update = async (req, res) => {
         message: 'Debes seleccionar una empresa válida para la planilla.',
       });
     }
-    // ───────────────────────────────────────────────────────────────────
 
     // ── Validar planilla única al editar ───────────────────────────────
     if (incoming.planilla && incoming.planilla !== doc.planilla) {
       const existe = await PlanillaCorbeta.findOne({
         planilla: incoming.planilla.trim().toUpperCase(),
-        _id: { $ne: doc._id }
+        _id: { $ne: doc._id },
       });
       if (existe) {
         return res.status(400).json({
-          message: `La planilla "${incoming.planilla}" ya existe. No se permiten duplicados.`
+          message: `La planilla "${incoming.planilla}" ya existe. No se permiten duplicados.`,
         });
       }
     }
-    // ───────────────────────────────────────────────────────────────────
 
     LOCKABLE_FIELDS.forEach((f) => {
       if (incoming[f] === undefined) return;
 
-      // adminSede, admin y user pueden sobreescribir campos bloqueados
-      // El rol 'sede' respeta el bloqueo
+      // El rol 'sede' respeta el bloqueo; los demás pueden sobreescribir
       if (req.user.role === 'sede' && doc.lockedFields.includes(f)) return;
 
       doc[f] = incoming[f];
@@ -246,18 +197,6 @@ exports.update = async (req, res) => {
         doc.lockedFields.push(f);
       }
     });
-
-    // novedades (mula): siempre reemplazables
-    if (Array.isArray(req.body.novedades)) {
-      doc.novedades = parseNovedades(req.body.novedades);
-    }
-
-    // novedadesLegalizacion: siempre reemplazables, máx. 5
-    if (Array.isArray(req.body.novedadesLegalizacion)) {
-      doc.novedadesLegalizacion = parseNovedades(
-        req.body.novedadesLegalizacion.slice(0, 5)
-      );
-    }
 
     await doc.save();
     res.json(doc);
@@ -281,14 +220,12 @@ exports.uploadArchivo = async (req, res) => {
     if (!req.file)
       return res.status(400).json({ message: 'No se recibió ningún archivo. Selecciona un PDF, JPG o PNG e intenta de nuevo.' });
 
-    // Eliminar archivo anterior si existe
     if (doc.archivoPlanilla) {
       const oldPath = path.join('/var/www/cooespatrans', doc.archivoPlanilla);
       if (fs.existsSync(oldPath)) {
         try {
           fs.unlinkSync(oldPath);
         } catch (unlinkErr) {
-          // No es crítico — continuar aunque no se pueda eliminar el archivo anterior
           console.warn('[uploadArchivo] No se pudo eliminar archivo anterior:', unlinkErr.message);
         }
       }
@@ -304,7 +241,6 @@ exports.uploadArchivo = async (req, res) => {
   } catch (err) {
     console.error('[uploadArchivo planilla]', err);
 
-    // ✅ Mensajes específicos según el tipo de error
     if (err.name === 'CastError')
       return res.status(400).json({ message: 'ID de planilla inválido.' });
 
@@ -323,7 +259,6 @@ exports.remove = async (req, res) => {
 
     const doc = await PlanillaCorbeta.findById(req.params.id);
     if (!doc) return res.status(404).json({ message: 'Planilla no encontrada' });
-
 
     await PlanillaCorbeta.findByIdAndDelete(req.params.id);
     res.json({ message: 'Eliminada' });
@@ -377,16 +312,12 @@ exports.exportExcel = async (req, res) => {
     // ── 3. Paleta de colores ─────────────────────────────────────────────────
     const C = {
       headerBg: 'FF1E3A5F',
-      headerFont: 'FFFFFFFF',
-
       groupNum: 'FF1E3A5F',
-      groupMula: 'FF2563EB',
       groupRuta: 'FFB45309',
       groupFinanzas: 'FF991B1B',
       groupSaldo: 'FFDC2626',
       groupLegalAlert: 'FF7C2D12',
       groupLegal: 'FF78350F',
-      groupPago: 'FF14532D',
       groupFont: 'FFFFFFFF',
 
       rowOdd: 'FFFFFFFF',
@@ -423,7 +354,7 @@ exports.exportExcel = async (req, res) => {
     });
 
     // ── 5. Fila 1 — Título del reporte ───────────────────────────────────────
-    const TOTAL_COLS = 36;
+    const TOTAL_COLS = 16;
     sheet.mergeCells(1, 1, 1, TOTAL_COLS);
     const titleCell = sheet.getCell('A1');
     const periodoLabel =
@@ -441,14 +372,12 @@ exports.exportExcel = async (req, res) => {
     // ── 6. Fila 2 — Encabezados de GRUPO ────────────────────────────────────
     const groups = [
       { label: '#', col: 1, span: 1, color: C.groupNum },
-      { label: 'DATOS DE LA MULA', col: 2, span: 7, color: C.groupMula },
-      { label: 'DATOS DE VEHÍCULO DE RUTA', col: 9, span: 7, color: C.groupRuta },
-      { label: 'FLETE / ANTICIPO / AJUSTE', col: 16, span: 4, color: C.groupFinanzas },
-      { label: 'SALDO A PAGAR', col: 20, span: 2, color: C.groupSaldo },
-      { label: 'ALERTA LEGALIZACIÓN', col: 22, span: 1, color: C.groupLegalAlert },
-      { label: 'LEGALIZACIÓN', col: 23, span: 6, color: C.groupLegal },
-      { label: 'PAGO CORBETA', col: 29, span: 6, color: C.groupPago },
-      { label: 'REGISTRO', col: 35, span: 1, color: C.groupNum },
+      { label: 'DATOS DE VEHÍCULO DE RUTA', col: 2, span: 6, color: C.groupRuta },
+      { label: 'FLETE / ANTICIPO / AJUSTE', col: 8, span: 4, color: C.groupFinanzas },
+      { label: 'SALDO A PAGAR', col: 12, span: 1, color: C.groupSaldo },
+      { label: 'ALERTA', col: 13, span: 1, color: C.groupLegalAlert },
+      { label: 'LEGALIZACIÓN', col: 14, span: 2, color: C.groupLegal },
+      { label: 'REGISTRO', col: 16, span: 1, color: C.groupNum },
     ];
 
     sheet.getRow(2).height = 22;
@@ -471,14 +400,8 @@ exports.exportExcel = async (req, res) => {
       { key: 'num', width: 5 },
       { key: 'planilla', width: 13 },
       { key: 'sede', width: 11 },
-      { key: 'placaMula', width: 13 },
-      { key: 'nombreConductorMula', width: 22 },
-      { key: 'nroFacturaMula', width: 15 },
-      { key: 'novedadesAverias', width: 26 },
-      { key: 'valorAverias', width: 14 },
       { key: 'conductorRuta', width: 22 },
       { key: 'placaTrasbordo', width: 13 },
-      { key: 'planillaTrasbordo', width: 14 },
       { key: 'tipoViaje', width: 13 },
       { key: 'nroManifiesto', width: 15 },
       { key: 'fechaSalidaRuta', width: 13 },
@@ -486,56 +409,38 @@ exports.exportExcel = async (req, res) => {
       { key: 'flete', width: 14 },
       { key: 'anticipo', width: 14 },
       { key: 'ajusteAutorizado', width: 13 },
-      { key: 'plazoMaximo', width: 10 },
       { key: 'retencion', width: 14 },
       { key: 'saldoPagar', width: 15 },
       { key: 'alertaLegalizacion', width: 18 },
-      { key: 'fechaLegalizacion', width: 14 },
-      { key: 'fechaLegalizacionReal', width: 13 },
-      { key: 'estadoLegalizacion', width: 14 },
-      { key: 'nroFacturaCorbeta', width: 16 },
-      { key: 'observaciones', width: 28 },
-      { key: 'limiteEntrega', width: 13 },
-      { key: 'nroFacturaPago', width: 15 },
-      { key: 'fechaPago', width: 14 },
-      { key: 'valorPagado', width: 14 },
-      { key: 'utilidad', width: 13 },
-      { key: 'observacionesCruze', width: 26 },
-      { key: 'credito', width: 14 },
-      { key: 'contado', width: 14 },
+      { key: 'fechaLegalizacionReal', width: 14 },
+      { key: 'estadoLegalizacion', width: 16 },
       { key: 'userEmail', width: 24 },
     ];
 
     const subHeaders = [
       '#',
-      'Planilla', 'Sede', 'Placa Mula',
-      'Conductor Mula', 'N° Factura',
-      'Novedades / Averías', 'Valor Averías',
+      'Planilla', 'Sede',
       'Conductor Ruta', 'Placa Trasbordo',
-      'Planilla Trasbordo', 'Tipo Viaje',
-      'N° Manifiesto', 'Fecha Salida', 'Ruta',
-      'Flete ($)', 'Anticipo ($)',
-      'Ajuste ($)', 'Días',
+      'Tipo Viaje', 'N° Manifiesto',
+      'Fecha Salida', 'Ruta',
+      'Flete ($)', 'Anticipo ($)', 'Ajuste ($)',
       'Retención ($)', 'Saldo Pagar ($)',
       'Alerta',
-      'F. Legalización', 'F. Leg. Real',
-      'Estado', 'N° Fact. Corbeta',
-      'Observaciones', 'Fecha Límite',
-      'N° Fact. Pago', 'Fecha de Pago', 'Valor Pagado ($)',
-      'Utilidad ($)', 'Obs. Cruze',
-      'Crédito ($)', 'Contado ($)',
+      'F. Leg. Real', 'Estado',
       'Creado por',
     ];
 
     const colGroupColor = [
       C.groupNum,
-      ...Array(7).fill(C.groupMula),
-      ...Array(7).fill(C.groupRuta),
-      ...Array(4).fill(C.groupFinanzas),
-      ...Array(2).fill(C.groupSaldo),
+      C.groupNum,
+      C.groupRuta,
+      ...Array(4).fill(C.groupRuta),
+      ...Array(2).fill(C.groupRuta),
+      ...Array(3).fill(C.groupFinanzas),
+      C.groupFinanzas,
+      C.groupSaldo,
       C.groupLegalAlert,
-      ...Array(6).fill(C.groupLegal),
-      ...Array(6).fill(C.groupPago),
+      ...Array(2).fill(C.groupLegal),
       C.groupNum,
     ];
 
@@ -558,8 +463,6 @@ exports.exportExcel = async (req, res) => {
     // ── 8. Columnas con formato de dinero ────────────────────────────────────
     const MONEY_KEYS = new Set([
       'flete', 'anticipo', 'ajusteAutorizado', 'retencion', 'saldoPagar',
-      'valorAverias', 'valorPagado', 'utilidad',
-      'credito', 'contado',
     ]);
 
     // ── 9. Filas de datos ────────────────────────────────────────────────────
@@ -571,14 +474,8 @@ exports.exportExcel = async (req, res) => {
         num: i + 1,
         planilla: p.planilla || '—',
         sede: p.sede || '—',
-        placaMula: p.placaMula || '—',
-        nombreConductorMula: p.nombreConductorMula || '—',
-        nroFacturaMula: p.nroFacturaMula || '—',
-        novedadesAverias: p.novedadesAverias || '—',
-        valorAverias: p.valorAverias ?? 0,
         conductorRuta: p.conductorRuta || '—',
         placaTrasbordo: p.placaTrasbordo || '—',
-        planillaTrasbordo: p.planillaTrasbordo || '—',
         tipoViaje: p.tipoViaje || '—',
         nroManifiesto: p.nroManifiesto || '—',
         fechaSalidaRuta: fmt(p.fechaSalidaRuta),
@@ -586,23 +483,11 @@ exports.exportExcel = async (req, res) => {
         flete: p.flete ?? 0,
         anticipo: p.anticipo ?? 0,
         ajusteAutorizado: p.ajusteAutorizado ?? 0,
-        plazoMaximo: p.plazoMaximo != null ? p.plazoMaximo : '—',
         retencion: p.retencion ?? 0,
         saldoPagar: p.saldoPagar ?? 0,
         alertaLegalizacion: p.alertaLegalizacion || 'En plazo ✓',
-        fechaLegalizacion: fmt(p.fechaLegalizacion),
         fechaLegalizacionReal: fmt(p.fechaLegalizacionReal),
-        estadoLegalizacion: p.estadoLegalizacion || '_',
-        nroFacturaCorbeta: p.nroFacturaCorbeta || '—',
-        observaciones: p.observaciones || '—',
-        limiteEntrega: fmt(p.limiteEntrega),
-        nroFacturaPago: p.nroFacturaPago || '—',
-        fechaPago: fmt(p.fechaPago),
-        valorPagado: p.valorPagado ?? 0,
-        utilidad: p.utilidad ?? 0,
-        observacionesCruze: p.observacionesCruze || '—',
-        credito: p.credito ?? 0,
-        contado: p.contado ?? 0,
+        estadoLegalizacion: p.estadoLegalizacion || '—',
         userEmail: p.userEmail || '—',
       });
 
@@ -616,7 +501,7 @@ exports.exportExcel = async (req, res) => {
         cell.alignment = {
           vertical: 'middle',
           horizontal: isMoneyCol ? 'right' : 'center',
-          wrapText: ['novedadesAverias', 'ruta', 'observaciones', 'observacionesCruze'].includes(colKey),
+          wrapText: ['ruta'].includes(colKey),
         };
         cell.border = {
           top: { style: 'hair', color: { argb: C.border } },
@@ -672,26 +557,14 @@ exports.exportExcel = async (req, res) => {
     const totalRow = sheet.addRow({
       num: '',
       planilla: `▶  TOTAL  ·  ${planillas.length} registro${planillas.length !== 1 ? 's' : ''}`,
-      sede: '', placaMula: '', nombreConductorMula: '', nroFacturaMula: '',
-      novedadesAverias: '',
-      valorAverias: sum('valorAverias'),
-      conductorRuta: '', placaTrasbordo: '', planillaTrasbordo: '',
+      sede: '', conductorRuta: '', placaTrasbordo: '',
       tipoViaje: '', nroManifiesto: '', fechaSalidaRuta: '', ruta: '',
       flete: sum('flete'),
       anticipo: sum('anticipo'),
       ajusteAutorizado: sum('ajusteAutorizado'),
-      plazoMaximo: '',
       retencion: sum('retencion'),
       saldoPagar: sum('saldoPagar'),
-      alertaLegalizacion: '', fechaLegalizacion: '', fechaLegalizacionReal: '',
-      estadoLegalizacion: '', nroFacturaCorbeta: '', observaciones: '', limiteEntrega: '',
-      nroFacturaPago: '',
-      fechaPago: '',
-      valorPagado: sum('valorPagado'),
-      utilidad: sum('utilidad'),
-      observacionesCruze: '',
-      credito: sum('credito'),
-      contado: sum('contado'),
+      alertaLegalizacion: '', fechaLegalizacionReal: '', estadoLegalizacion: '',
       userEmail: '',
     });
 
