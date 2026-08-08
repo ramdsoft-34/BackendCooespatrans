@@ -67,7 +67,29 @@ const planillaCorbetaSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+planillaCorbetaSchema.pre('save', function (next) {
 
+  // 0. Generar un valor único para 'planilla' si viene vacío
+  //    (el índice único planilla_1 sigue vivo, así evitamos duplicados)
+  if (!this.planilla || String(this.planilla).trim() === '') {
+    this.planilla = `AUTO-${this._id}`;
+  }
+
+  // 1. plazoMaximo ← tipoViaje
+  if (this.tipoViaje === 'Urbano' || this.tipoViaje === 'URBANO') {
+    this.plazoMaximo = 2;
+  } else if (
+    this.tipoViaje === 'Correría' ||
+    this.tipoViaje === 'CORRERÍA' ||
+    this.tipoViaje === 'CORRERIA'
+  ) {
+    this.plazoMaximo = 4;
+  }
+
+  // ... resto del pre-save igual ...
+
+  next();
+});
 // ── Pre-save ─────────────────────────────────────────────────────────────────
 planillaCorbetaSchema.pre('save', function (next) {
 

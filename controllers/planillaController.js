@@ -6,7 +6,7 @@ const EMPRESAS = PlanillaCorbeta.EMPRESAS;
 
 // ── Campos bloqueables ────────────────────────────────────────────────────────
 const LOCKABLE_FIELDS = [
-  'planilla', 'empresa',
+  'empresa',
   'conductorRuta', 'placaTrasbordo',
   'tipoViaje', 'nroManifiesto',
   'fechaSalidaRuta', 'ruta',
@@ -127,17 +127,6 @@ exports.create = async (req, res) => {
       (f) => fields[f] !== undefined && hasValue(fields[f])
     );
 
-    // ── Validar planilla única ──────────────────────────────────────────
-    if (fields.planilla) {
-      const existe = await PlanillaCorbeta.findOne({
-        planilla: fields.planilla.trim().toUpperCase(),
-      });
-      if (existe) {
-        return res.status(400).json({
-          message: `La planilla "${fields.planilla}" ya existe. No se permiten duplicados.`,
-        });
-      }
-    }
 
     const doc = new PlanillaCorbeta({
       sede,
@@ -173,18 +162,6 @@ exports.update = async (req, res) => {
       });
     }
 
-    // ── Validar planilla única al editar ───────────────────────────────
-    if (incoming.planilla && incoming.planilla !== doc.planilla) {
-      const existe = await PlanillaCorbeta.findOne({
-        planilla: incoming.planilla.trim().toUpperCase(),
-        _id: { $ne: doc._id },
-      });
-      if (existe) {
-        return res.status(400).json({
-          message: `La planilla "${incoming.planilla}" ya existe. No se permiten duplicados.`,
-        });
-      }
-    }
 
     LOCKABLE_FIELDS.forEach((f) => {
       if (incoming[f] === undefined) return;
