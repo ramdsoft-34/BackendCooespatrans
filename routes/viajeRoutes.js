@@ -484,7 +484,7 @@ router.get('/asignados/:choferId', async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 // GET /api/viajes/buscar/:codigo
 // ─────────────────────────────────────────────────────────────
-router.get('/buscar/:codigo', protect, async (req, res) => {
+router.get('/buscar/:codigo', async (req, res) => {
   try {
     const viaje = await Viaje.findOne({ owner: req.user._id, codigo: req.params.codigo })
       .populate('bodega')
@@ -557,7 +557,7 @@ router.put('/aceptar/:codigo', async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 // PUT /api/viajes/completar/:codigo
 // ─────────────────────────────────────────────────────────────
-router.put('/completar/:codigo', protect, async (req, res) => {
+router.put('/completar/:codigo', async (req, res) => {
   try {
     const { codigo } = req.params;
     const { estado } = req.body;
