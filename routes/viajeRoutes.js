@@ -486,7 +486,7 @@ router.get('/asignados/:choferId', async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 router.get('/buscar/:codigo', async (req, res) => {
   try {
-    const viaje = await Viaje.findOne({ owner: req.user._id, codigo: req.params.codigo })
+    const viaje = await Viaje.findOne({ codigo: req.params.codigo })
       .populate('bodega')
       .populate('clientes');
     if (!viaje) return res.status(404).json({ mensaje: 'Número de planilla no encontrado' });
@@ -495,7 +495,8 @@ router.get('/buscar/:codigo', async (req, res) => {
       if (info) viaje._doc.choferInfo = info;
     }
     res.json(viaje);
-  } catch {
+  } catch (error) {
+    console.error('[buscar viaje]', error);
     res.status(500).json({ mensaje: 'Error al buscar viaje' });
   }
 });
@@ -561,25 +562,20 @@ router.put('/completar/:codigo', async (req, res) => {
   try {
     const { codigo } = req.params;
     const { estado } = req.body;
-
     if (estado !== 'completado') return res.status(400).json({ error: 'Estado inválido' });
-
     const viaje = await Viaje.findOneAndUpdate(
-      { owner: req.user._id, codigo, estado: { $in: ['aceptado', 'pendiente'] } },
+      { codigo, estado: { $in: ['aceptado', 'pendiente'] } },
       { estado: 'completado', fechaCompletado: new Date() },
       { new: true }
     ).populate('bodega').populate('clientes');
-
     if (!viaje) return res.status(404).json({ error: 'Viaje no encontrado o no puede completarse' });
-
-    await Cliente.updateMany({ owner: req.user._id, codigoViaje: codigo }, { estadoViaje: 'entregado' });
-
+    await Cliente.updateMany({ owner: viaje.owner, codigoViaje: codigo }, { estadoViaje: 'entregado' });
     const choferInfo = viaje.choferAsignado
       ? await buscarChoferInfo(viaje.choferAsignado)
       : null;
-
     res.json({ message: 'Viaje completado correctamente', viaje, choferInfo });
   } catch (error) {
+    console.error('[completar viaje]', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
