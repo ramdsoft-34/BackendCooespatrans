@@ -5,14 +5,38 @@ const Cliente = require('../models/Cliente');
 const Bodega  = require('../models/Bodega');
 
 // Montado con `protect` en server.js → req.user disponible.
-// Todo se filtra/estampa por owner = req.user._id (aislamiento por usuario).
+//
+// Reglas de acceso:
+// - admin: ve/gestiona clientes de CUALQUIER bodega.
+// - jefeBodega: ve/gestiona SOLO los clientes de su bodega asignada (user.bodegaId),
+//   sin importar quién los creó (owner).
+// - resto de roles (coordLogistico, etc.): siguen aislados por owner = req.user._id.
+
+// Helper: arma el filtro de lectura según el rol del usuario logueado
+const filtroPorRol = (req, extra = {}) => {
+  if (req.user.role === 'admin') {
+    return { ...extra };
+  }
+  if (req.user.role === 'jefeBodega') {
+    if (!req.user.bodegaId) return { _id: null }; // sin bodega asignada → no ve nada
+    return { ...extra, bodegaId: req.user.bodegaId };
+  }
+  return { ...extra, owner: req.user._id };
+};
+
+// Helper: valida que una bodega exista y sea accesible para el usuario
+const bodegaAccesible = async (req, bodegaId) => {
+  if (req.user.role === 'admin') {
+    return Bodega.findById(bodegaId);
+  }
+  return Bodega.findOne({ _id: bodegaId, owner: req.user._id });
+};
 
 // ── GET / ─────────────────────────────────────────────────────────────────────
 router.get('/', async (req, res) => {
   try {
     const { bodegaId, page = 1, limit = 50 } = req.query;
-    const query = { owner: req.user._id };
-    if (bodegaId) query.bodegaId = bodegaId;
+    const query = filtroPorRol(req, bodegaId ? { bodegaId } : {});
 
     const [clientes, total] = await Promise.all([
       Cliente.find(query)
@@ -38,7 +62,8 @@ router.get('/', async (req, res) => {
 // ── GET /:id ──────────────────────────────────────────────────────────────────
 router.get('/:id', async (req, res) => {
   try {
-    const cliente = await Cliente.findOne({ _id: req.params.id, owner: req.user._id })
+    const query = filtroPorRol(req, { _id: req.params.id });
+    const cliente = await Cliente.findOne(query)
       .populate('bodegaId', 'nombre direccion');
     if (!cliente) return res.status(404).json({ message: 'Cliente no encontrado' });
     res.json(cliente);
@@ -60,13 +85,13 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ message: 'Se requiere el ID de la bodega' });
     }
 
-    const bodegaExiste = await Bodega.findOne({ _id: bodegaId, owner: req.user._id });
+    const bodegaExiste = await bodegaAccesible(req, bodegaId);
     if (!bodegaExiste) {
       return res.status(404).json({ message: 'La bodega especificada no existe' });
     }
 
     const clientesParaInsertar = clientes.map(d => ({
-      owner:          req.user._id,
+      owner:          bodegaExiste.owner,   // 👈 se hereda el owner de la bodega, no del usuario logueado
       bodegaId,
       nombre:         d.nombre         || null,
       nunFactura:     d.nunFactura      || null,
@@ -100,9 +125,6 @@ router.post('/', async (req, res) => {
 });
 
 // ── POST /individual (formulario manual desde Bodegas.js) ────────────────────
-// El cliente creado manualmente se asocia a la planilla (numeroPlanilla) en la
-// que el admin se encuentra posicionado dentro de la bodega. Si no se envía,
-// queda sin planilla (null).
 router.post('/individual', async (req, res) => {
   try {
     const { bodegaId, ...d } = req.body;
@@ -111,19 +133,17 @@ router.post('/individual', async (req, res) => {
       return res.status(400).json({ message: 'Se requiere bodegaId' });
     }
 
-    const bodegaExiste = await Bodega.findOne({ _id: bodegaId, owner: req.user._id });
+    const bodegaExiste = await bodegaAccesible(req, bodegaId);
     if (!bodegaExiste) {
       return res.status(404).json({ message: 'La bodega especificada no existe' });
     }
 
-    // ── Validaciones obligatorias ────────────────────────────────────────────
     if (!d.nombre || !String(d.nombre).trim()) {
       return res.status(400).json({ message: 'El nombre es obligatorio' });
     }
     if (!d.nunFactura || !String(d.nunFactura).trim()) {
       return res.status(400).json({ message: 'El número de factura es obligatorio' });
     }
-
     if (d.tipoFactura === 'contado' && !d.valorARecibir) {
       return res.status(400).json({ message: 'Para facturas de contado se requiere el valor a recibir' });
     }
@@ -132,11 +152,10 @@ router.post('/individual', async (req, res) => {
     }
 
     const nuevoCliente = new Cliente({
-      owner:         req.user._id,
+      owner:         bodegaExiste.owner,   // 👈 igual aquí
       bodegaId,
       nombre:        String(d.nombre).trim(),
       nunFactura:    String(d.nunFactura).trim(),
-      // Se asocia a la planilla en la que se encuentra el admin (si aplica).
       numeroPlanilla: d.numeroPlanilla ? String(d.numeroPlanilla).trim() : null,
       apellido:      d.apellido       || null,
       cedula:        d.cedula         || null,
@@ -170,8 +189,7 @@ router.put('/:id', async (req, res) => {
     const updateData = {};
 
     if (bodegaId) {
-      // Si se cambia de bodega, la nueva debe pertenecer al usuario.
-      const bodegaExiste = await Bodega.findOne({ _id: bodegaId, owner: req.user._id });
+      const bodegaExiste = await bodegaAccesible(req, bodegaId);
       if (!bodegaExiste) {
         return res.status(404).json({ message: 'La bodega especificada no existe' });
       }
@@ -179,7 +197,7 @@ router.put('/:id', async (req, res) => {
     }
 
     const camposPermitidos = [
-      'nombre', 'nunFactura', 'numeroPlanilla',   // ← numeroPlanilla editable
+      'nombre', 'nunFactura', 'numeroPlanilla',
       'apellido', 'cedula', 'telefono', 'email',
       'ciudad', 'departamento', 'direccion', 'pago',
       'valorARecibir', 'plazoDias', 'pesoKg',
@@ -196,8 +214,9 @@ router.put('/:id', async (req, res) => {
       }
     });
 
+    const query = filtroPorRol(req, { _id: req.params.id });
     const clienteActualizado = await Cliente.findOneAndUpdate(
-      { _id: req.params.id, owner: req.user._id },
+      query,
       updateData,
       { new: true, runValidators: true }
     ).populate('bodegaId', 'nombre direccion');
@@ -215,9 +234,8 @@ router.put('/:id', async (req, res) => {
 // ── DELETE /:id ───────────────────────────────────────────────────────────────
 router.delete('/:id', async (req, res) => {
   try {
-    const clienteEliminado = await Cliente.findOneAndDelete({
-      _id: req.params.id, owner: req.user._id
-    });
+    const query = filtroPorRol(req, { _id: req.params.id });
+    const clienteEliminado = await Cliente.findOneAndDelete(query);
     if (!clienteEliminado) {
       return res.status(404).json({ message: 'Cliente no encontrado' });
     }
@@ -231,9 +249,8 @@ router.delete('/:id', async (req, res) => {
 // ── DELETE /bodega/:bodegaId ──────────────────────────────────────────────────
 router.delete('/bodega/:bodegaId', async (req, res) => {
   try {
-    const resultado = await Cliente.deleteMany({
-      bodegaId: req.params.bodegaId, owner: req.user._id
-    });
+    const query = filtroPorRol(req, { bodegaId: req.params.bodegaId });
+    const resultado = await Cliente.deleteMany(query);
     res.json({
       message:           `${resultado.deletedCount} clientes eliminados exitosamente`,
       cantidadEliminada: resultado.deletedCount,

@@ -506,7 +506,23 @@ router.get('/buscar/:codigo', async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 router.get('/', protect, async (req, res) => {
   try {
-    const viajes = await Viaje.find({ owner: req.user._id })
+    let filtro = {};
+
+    if (req.user.role === 'jefeBodega') {
+      // Ve los viajes de SU bodega, sin importar quién los creó
+      if (!req.user.bodegaId) {
+        return res.json([]); // no tiene bodega asignada
+      }
+      filtro = { bodega: req.user.bodegaId };
+    } else if (req.user.role === 'admin') {
+      // El admin ve todos los viajes
+      filtro = {};
+    } else {
+      // Coordinador, sede, etc. siguen viendo solo lo suyo
+      filtro = { owner: req.user._id };
+    }
+
+    const viajes = await Viaje.find(filtro)
       .populate('bodega', 'nombre direccion')
       .populate('clientes')
       .sort({ fecha: -1 });
