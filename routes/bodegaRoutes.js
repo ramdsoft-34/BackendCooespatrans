@@ -41,29 +41,6 @@ router.get('/con-clientes', async (req, res) => {
   }
 });
 
-// GET - todas las bodegas DEL USUARIO
-router.get('/', async (req, res) => {
-  try {
-    const bodegas = await Bodega.find({ owner: req.user._id }).sort({ createdAt: -1 });
-    res.json(bodegas);
-  } catch (error) {
-    console.error('Error al obtener bodegas:', error);
-    res.status(500).json({ message: 'Error del servidor', error: error.message });
-  }
-});
-
-// GET - una bodega por ID (solo si es del usuario)
-router.get('/:id', async (req, res) => {
-  try {
-    const bodega = await Bodega.findOne({ _id: req.params.id, owner: req.user._id });
-    if (!bodega) return res.status(404).json({ message: 'Bodega no encontrada' });
-    res.json(bodega);
-  } catch (error) {
-    console.error('Error al obtener bodega:', error);
-    res.status(500).json({ message: 'Error del servidor', error: error.message });
-  }
-});
-
 // POST - crear bodega (asociada al usuario)
 router.post('/', async (req, res) => {
   try {
@@ -93,7 +70,34 @@ router.post('/', async (req, res) => {
   }
 });
 
-// PUT - actualizar bodega (solo si es del usuario)
+// GET - bodegas: el admin ve TODAS, el resto solo las suyas
+router.get('/', async (req, res) => {
+  try {
+    const filtro = req.user.role === 'admin' ? {} : { owner: req.user._id };
+    const bodegas = await Bodega.find(filtro).sort({ createdAt: -1 });
+    res.json(bodegas);
+  } catch (error) {
+    console.error('Error al obtener bodegas:', error);
+    res.status(500).json({ message: 'Error del servidor', error: error.message });
+  }
+});
+
+// GET - una bodega por ID (el admin puede ver cualquiera)
+router.get('/:id', async (req, res) => {
+  try {
+    const filtro = req.user.role === 'admin'
+      ? { _id: req.params.id }
+      : { _id: req.params.id, owner: req.user._id };
+    const bodega = await Bodega.findOne(filtro);
+    if (!bodega) return res.status(404).json({ message: 'Bodega no encontrada' });
+    res.json(bodega);
+  } catch (error) {
+    console.error('Error al obtener bodega:', error);
+    res.status(500).json({ message: 'Error del servidor', error: error.message });
+  }
+});
+
+// PUT - actualizar bodega (el admin puede editar cualquiera)
 router.put('/:id', async (req, res) => {
   try {
     const { nombre, direccion } = req.body;
@@ -101,8 +105,12 @@ router.put('/:id', async (req, res) => {
       return res.status(400).json({ message: 'Nombre y dirección son requeridos' });
     }
 
+    const filtro = req.user.role === 'admin'
+      ? { _id: req.params.id }
+      : { _id: req.params.id, owner: req.user._id };
+
     const bodegaActualizada = await Bodega.findOneAndUpdate(
-      { _id: req.params.id, owner: req.user._id },
+      filtro,
       { nombre: nombre.trim(), direccion: direccion.trim() },
       { new: true, runValidators: true }
     );
@@ -114,23 +122,25 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// DELETE - eliminar bodega (solo si es del usuario)
+// DELETE - eliminar bodega (el admin puede eliminar cualquiera)
 router.delete('/:id', async (req, res) => {
   try {
-    const bodega = await Bodega.findOne({ _id: req.params.id, owner: req.user._id });
+    const filtro = req.user.role === 'admin'
+      ? { _id: req.params.id }
+      : { _id: req.params.id, owner: req.user._id };
+
+    const bodega = await Bodega.findOne(filtro);
     if (!bodega) return res.status(404).json({ message: 'Bodega no encontrada' });
 
     const Cliente = require('../models/Cliente');
-    const clientesAsociados = await Cliente.countDocuments({
-      bodegaId: req.params.id, owner: req.user._id
-    });
+    const clientesAsociados = await Cliente.countDocuments({ bodegaId: req.params.id });
     if (clientesAsociados > 0) {
       return res.status(400).json({
         message: `No se puede eliminar la bodega. Tiene ${clientesAsociados} cliente(s) asociado(s).`
       });
     }
 
-    await Bodega.deleteOne({ _id: req.params.id, owner: req.user._id });
+    await Bodega.deleteOne(filtro);
     res.json({ message: 'Bodega eliminada exitosamente' });
   } catch (error) {
     console.error('Error al eliminar bodega:', error);
