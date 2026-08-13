@@ -186,7 +186,10 @@ exports.getAllUsers = async (req, res) => {
 
     // ✅ admin ve todos; adminSede solo ve los de su sede
     if (callerRole === 'admin') {
-      const users = await User.find().select('-password').sort({ createdAt: -1 });
+      const users = await User.find()
+        .select('-password')
+        .populate('bodegaId', 'nombre direccion')
+        .sort({ createdAt: -1 });
       return res.status(200).json({ success: true, users });
     }
 
@@ -218,7 +221,7 @@ exports.updateUser = async (req, res) => {
     if (!['admin', 'adminSede'].includes(callerRole))
       return res.status(403).json({ success: false, message: 'Sin permisos' });
 
-    const { email, role, sedeNombre, password } = req.body;
+    const { email, role, sedeNombre, bodegaId, password } = req.body;
 
     if (ROLES_CON_SEDE.includes(role) && !sedeNombre)
       return res.status(400).json({
@@ -232,6 +235,16 @@ exports.updateUser = async (req, res) => {
     const user = await User.findById(req.params.id);
     if (!user)
       return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+
+    // ✅ jefeBodega requiere bodegaId válido (sobre el rol que va a quedar: el nuevo si viene, o el actual)
+    if (ROLES_CON_BODEGA.includes(role ?? user.role)) {
+      const bodegaIdFinal = bodegaId ?? user.bodegaId;
+      if (!bodegaIdFinal)
+        return res.status(400).json({ success: false, message: `bodegaId es requerido para el rol ${role ?? user.role}` });
+
+      const bodega = await Bodega.findById(bodegaIdFinal);
+      if (!bodega) return res.status(400).json({ success: false, message: 'Bodega no encontrada' });
+    }
 
     // ✅ adminSede solo puede editar usuarios de su propia sede
     if (callerRole === 'adminSede' && user.sedeNombre !== callerSede)
@@ -250,6 +263,7 @@ exports.updateUser = async (req, res) => {
     if (email) user.email = email.toLowerCase().trim();
     if (role) user.role = role;
     user.sedeNombre = ROLES_CON_SEDE.includes(role ?? user.role) ? sedeNombre : null;
+    user.bodegaId = ROLES_CON_BODEGA.includes(role ?? user.role) ? (bodegaId ?? user.bodegaId) : null; // 👈 nuevo
     if (password) user.password = password;
 
     await user.save();

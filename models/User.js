@@ -25,12 +25,17 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['admin', 'user', 'sede', 'adminSede', 'userManifiesto', 'coordLogistico'],
+    enum: ['admin', 'user', 'sede', 'adminSede', 'userManifiesto', 'coordLogistico', 'jefeBodega'],
     default: 'user'
   },
   sedeNombre: {
     type: String,
     trim: true,
+    default: null
+  },
+  bodegaId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Bodega',
     default: null
   },
   isActive: {
@@ -41,11 +46,11 @@ const userSchema = new mongoose.Schema({
   timestamps: true
 });
 
-userSchema.methods.comparePassword = async function(candidatePassword) {
+userSchema.methods.comparePassword = async function (candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };
 
-userSchema.pre('save', async function(next) {
+userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();
   try {
     const salt = await bcrypt.genSalt(10);
