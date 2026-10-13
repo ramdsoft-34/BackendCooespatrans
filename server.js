@@ -50,6 +50,9 @@ app.use('/api/email',          require('./routes/emailRoutes'));
 app.use('/api/manifiestos',    require('./routes/manifestoRoutes')); // ← NUEVO
 app.use('/api/sede-config',    require('./routes/sedeConfigRoutes'));
 app.use('/api/notificaciones', protect, require('./routes/notificacionRoutes')); // ← NUEVO
+// 📖 Manual de usuario: GET público (sin protect); las rutas de escritura
+// están protegidas dentro del propio archivo (protect + solo admin).
+app.use('/api/manual',         require('./routes/manualRoutes'));
 
 app.get('/', (_req, res) => {
   res.json({ message: 'Servidor Cooespatrans funcionando correctamente' });

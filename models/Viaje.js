@@ -46,7 +46,18 @@ const viajeSchema = new mongoose.Schema({
   valorFlete: {
     type: Number,
     required: true,
-    min: 0
+    min: 0,
+    max: 999999999999, // evita valores absurdos que rompen el formato aguas abajo
+  },
+
+  // Anticipo entregado al conductor al momento de crear el viaje (opcional,
+  // por defecto 0 si no se especifica). Se descuenta del valorFlete para
+  // calcular el saldo pendiente.
+  anticipo: {
+    type: Number,
+    default: 0,
+    min: 0,
+    max: 999999999999,
   },
 
   // 📍 NUEVO CAMPO: Ruta optimizada guardada

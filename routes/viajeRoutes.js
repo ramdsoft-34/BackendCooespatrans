@@ -96,12 +96,25 @@ router.get('/choferes/disponibles', async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 router.post('/crear', protect, async (req, res) => {
   try {
-    const { bodegaId, clientes: clienteIds, valorFlete, numeroPlanilla, choferId } = req.body;
+    const { bodegaId, clientes: clienteIds, valorFlete, anticipo, numeroPlanilla, choferId } = req.body;
+
+    // Mismo tope que en el panel (Bodegas.js): evita valores absurdos que
+    // luego rompen el formato en cascada en la app y en el reporte PDF.
+    const MAX_VALOR_FLETE = 999999999999;
 
     if (!numeroPlanilla || numeroPlanilla.trim() === '')
       return res.status(400).json({ mensaje: 'El número de planilla es requerido' });
     if (!valorFlete || valorFlete <= 0)
       return res.status(400).json({ mensaje: 'El valor del flete debe ser mayor a 0' });
+    if (Number(valorFlete) > MAX_VALOR_FLETE)
+      return res.status(400).json({ mensaje: 'El valor del flete es demasiado grande' });
+    const anticipoNumerico = anticipo !== undefined && anticipo !== null && anticipo !== ''
+      ? Number(anticipo)
+      : 0;
+    if (Number.isNaN(anticipoNumerico) || anticipoNumerico < 0)
+      return res.status(400).json({ mensaje: 'El anticipo debe ser un valor válido mayor o igual a 0' });
+    if (anticipoNumerico > Number(valorFlete))
+      return res.status(400).json({ mensaje: 'El anticipo no puede ser mayor al valor del flete' });
     if (!choferId)
       return res.status(400).json({ mensaje: 'Debes asignar un conductor al viaje' });
 
@@ -242,6 +255,7 @@ router.post('/crear', protect, async (req, res) => {
       clientes:      clienteIds,
       estado:        'pendiente',
       valorFlete:    Number(valorFlete),
+      anticipo:      anticipoNumerico,
       choferAsignado: choferId,
       rutaGuardada,
     });
@@ -463,6 +477,7 @@ router.get('/asignados/:choferId', async (req, res) => {
       estado: v.estado,
       fecha: v.fecha,
       valorFlete: v.valorFlete,
+      anticipo: v.anticipo || 0,
       bodega: v.bodega,
       clientes: v.clientes,
       cantidadClientes: v.clientes?.length || 0,
@@ -678,6 +693,7 @@ router.get('/historial/:choferId', async (req, res) => {
         fechaAceptacion: v.fechaAceptacion,
         fechaCompletado: v.fechaCompletado,
         valorFlete: v.valorFlete,
+        anticipo: v.anticipo || 0,
         bodega: {
           nombre:    v.bodega?.nombre    || 'Sin bodega',
           direccion: v.bodega?.direccion || 'Sin dirección',
