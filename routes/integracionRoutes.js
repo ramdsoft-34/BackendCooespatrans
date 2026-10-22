@@ -8,6 +8,9 @@ const express = require('express');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 const Viaje = require('../models/Viaje');
+const Cliente = require('../models/Cliente');
+const Bodega = require('../models/Bodega');
+const { generarRutaParaViaje } = require('../services/rutaService');
 const { enviarNotificacionViajeAsignado } = require('../services/notificacionService');
 
 const router = express.Router();
@@ -49,6 +52,42 @@ const presentarChofer = (c) => ({
   soat: c.vehiculo?.soat || '', tecnomecanico: c.vehiculo?.tecnomecanico || '', licenciaVencimiento: c.licenciaVencimiento || '',
 });
 
+// ── Clientes del viaje (como en «Crear viaje» de Cooespatrans) ──
+const txt = (v, max = 200) => String(v ?? '').trim().slice(0, max);
+function normalizarClientes(lista, codigo) {
+  if (!Array.isArray(lista)) return [];
+  return lista.slice(0, 200).map((c, i) => ({
+    nombre: txt(c.nombre, 120), apellido: txt(c.apellido, 120) || null, telefono: txt(c.telefono, 30) || null,
+    direccion: txt(c.direccion, 200) || null, ciudad: txt(c.ciudad, 80) || null, departamento: txt(c.departamento, 80) || null,
+    cedula: txt(c.documento, 20) || null, nunFactura: txt(c.factura, 40) || `${codigo}-${i + 1}`,
+    valorARecibir: Number(c.valor) > 0 ? Number(c.valor) : null, referencia: txt(c.referencia, 60),
+  })).filter(c => c.nombre);
+}
+
+// Ruta: con clientes la calcula Cooespatrans (igual que al crear un viaje); solo destino usa la ruta sugerida que envía Translogística
+async function asignarClientesYRuta(viaje, owner, clientesIn, rutaSugerida) {
+  const anteriores = await Cliente.find({ owner, codigoViaje: viaje.codigo }).select('_id').lean();
+  if (anteriores.length) await Cliente.deleteMany({ _id: { $in: anteriores.map(c => c._id) } });
+  const datos = normalizarClientes(clientesIn, viaje.codigo);
+  const docs = datos.length ? await Cliente.insertMany(datos.map(({ referencia, ...c }) => ({ ...c, owner, bodegaId: viaje.bodega,
+    numeroPlanilla: viaje.codigo, codigoViaje: viaje.codigo, estadoViaje: 'asignado' }))) : [];
+  viaje.clientes = docs.map(d => d._id);
+  viaje.rutaGuardada = null;
+  if (docs.length) {
+    try {
+      const bodega = await Bodega.findById(viaje.bodega).lean();
+      const ruta = bodega?.direccion ? await generarRutaParaViaje(bodega, docs) : null;
+      if (ruta?.coordenadas?.length) viaje.rutaGuardada = { coordenadas: ruta.coordenadas, ordenClientes: ruta.ordenClientes,
+        distanciaTotal: ruta.distanciaTotal, duracionEstimada: ruta.duracionEstimada, generadaEn: new Date() };
+    } catch (e) { console.error('[integracion] ruta:', e.message); }
+  } else if (Array.isArray(rutaSugerida?.coordenadas) && rutaSugerida.coordenadas.length > 1) {
+    viaje.rutaGuardada = { coordenadas: rutaSugerida.coordenadas.slice(0, 5000).map(c => ({ lat: Number(c.lat), lng: Number(c.lng) })),
+      ordenClientes: [], distanciaTotal: Number(rutaSugerida.distancia) || 0, duracionEstimada: Number(rutaSugerida.duracion) || 0, generadaEn: new Date() };
+  }
+  await viaje.save();
+  return docs.map((d, i) => ({ clienteId: String(d._id), referencia: datos[i].referencia }));
+}
+
 // GET /api/integracion/vehiculos → conductores de Sur Track con su vehículo (sin contraseñas ni tokens)
 router.get('/vehiculos', seguro(async (_req, res) => {
   const lista = await db().collection('chofers')
@@ -83,12 +122,20 @@ router.get('/rastreo/:viajeId', seguro(async (req, res) => {
   if (!oid(viajeId)) return res.status(400).json({ mensaje: 'Viaje inválido' });
   const desde = req.query.desde ? new Date(req.query.desde) : new Date(0);
   const [viaje, ultima, puntos] = await Promise.all([
-    Viaje.findById(viajeId).select('codigo estado fecha fechaAceptacion fechaCompletado').lean(),
+    Viaje.findById(viajeId).select('codigo estado fecha fechaAceptacion fechaCompletado clientes rutaGuardada').populate('clientes', 'nombre apellido direccion ciudad telefono nunFactura valorARecibir').lean(),
     db().collection('ubicacions').findOne({ viajeId }, { sort: { ultimaActualizacion: -1 } }),
     db().collection('puntorecorridos').find({ viajeId, timestamp: { $gt: desde } }).sort({ timestamp: 1 }).limit(5000).toArray(),
   ]);
   if (!viaje) return res.status(404).json({ mensaje: 'Viaje no encontrado' });
+  // Estado de entrega que marca el conductor en Sur Track (colección de la app)
+  const entregas = await db().collection('clientecompletados').find({ viajeId }).project({ nombreCliente: 1, direccion: 1, estadoEntrega: 1, valorRecibido: 1, updatedAt: 1, createdAt: 1 }).toArray();
+  const entregaDe = (c) => entregas.find(e => e.nombreCliente === [c.nombre, c.apellido].filter(Boolean).join(' ') || e.nombreCliente === c.nombre);
   res.json({
+    clientes: (viaje.clientes || []).filter(Boolean).map(c => { const e = entregaDe(c); return { clienteId: String(c._id), nombre: [c.nombre, c.apellido].filter(Boolean).join(' '),
+      direccion: c.direccion || '', ciudad: c.ciudad || '', telefono: c.telefono || '', factura: c.nunFactura || '', valor: c.valorARecibir || 0,
+      estadoEntrega: e?.estadoEntrega || 'pendiente', valorRecibido: e?.valorRecibido || 0, fechaEntrega: e?.updatedAt || e?.createdAt || null }; }),
+    ruta: viaje.rutaGuardada?.coordenadas?.length ? { coordenadas: viaje.rutaGuardada.coordenadas.map(c => ({ lat: c.lat, lng: c.lng })),
+      ordenClientes: (viaje.rutaGuardada.ordenClientes || []).map(String), distancia: viaje.rutaGuardada.distanciaTotal || 0, duracion: viaje.rutaGuardada.duracionEstimada || 0 } : null,
     viaje: { viajeId, codigo: viaje.codigo, estado: viaje.estado, fechaAceptacion: viaje.fechaAceptacion || null, fechaCompletado: viaje.fechaCompletado || null },
     ultima: ultima ? { lat: ultima.latitud, lng: ultima.longitud, velocidad: ultima.velocidad || 0, rumbo: ultima.heading || 0,
       hora: ultima.ultimaActualizacion || ultima.timestamp, activo: !!ultima.activo } : null,
@@ -97,7 +144,7 @@ router.get('/rastreo/:viajeId', seguro(async (req, res) => {
 }));
 
 // POST /api/integracion/viajes → crea el viaje que el conductor verá en Sur Track para iniciar el rastreo.
-// Body: { referencia, codigo, placa?, cedula?, valorFlete, anticipo?, empresa? }. La bodega se elige por el nombre
+// Body: { referencia, codigo, placa?, cedula?, valorFlete, anticipo?, empresa?, clientes?: [...], rutaSugerida?: { coordenadas, distancia, duracion } }. La bodega se elige por el nombre
 // de la empresa (p. ej. «Corbeta» → CORBETA PASTO); si no coincide ninguna, se usa INTEGRACION_BODEGA_ID. Si ya existe uno con la misma referencia, lo devuelve.
 router.post('/viajes', seguro(async (req, res) => {
   const owner = oid(process.env.INTEGRACION_OWNER_ID);
@@ -127,11 +174,27 @@ router.post('/viajes', seguro(async (req, res) => {
   const viaje = await Viaje.create({ owner, codigo: cod, bodega, clientes: [], estado: 'pendiente', valorFlete, anticipo,
     choferAsignado: chofer._id, integracion: { origen: 'translogistica', referencia: String(referencia), creado: new Date() } });
 
+  let clientes = [];
+  try { clientes = await asignarClientesYRuta(viaje, owner, req.body?.clientes, req.body?.rutaSugerida); }
+  catch (e) { await viaje.deleteOne(); throw e; }
+
   try {
-    await enviarNotificacionViajeAsignado(chofer.fcmToken || null, { _id: viaje._id, codigo: viaje.codigo, cantidadClientes: 0 });
+    await enviarNotificacionViajeAsignado(chofer.fcmToken || null, { _id: viaje._id, codigo: viaje.codigo, cantidadClientes: clientes.length });
   } catch { /* la notificación no bloquea la creación */ }
 
-  res.status(201).json({ viajeId: String(viaje._id), codigo: viaje.codigo, estado: viaje.estado, chofer: presentarChofer(chofer) });
+  res.status(201).json({ viajeId: String(viaje._id), codigo: viaje.codigo, estado: viaje.estado, chofer: presentarChofer(chofer),
+    clientes, rutaGenerada: !!viaje.rutaGuardada?.coordenadas?.length });
+}));
+
+// PUT /api/integracion/viajes/:viajeId/clientes → reemplaza los clientes (o la ruta sugerida) mientras el conductor no haya aceptado
+router.put('/viajes/:viajeId/clientes', seguro(async (req, res) => {
+  const id = oid(req.params.viajeId);
+  if (!id) return res.status(400).json({ mensaje: 'Viaje inválido' });
+  const viaje = await Viaje.findOne({ _id: id, 'integracion.origen': 'translogistica' });
+  if (!viaje) return res.status(404).json({ mensaje: 'Viaje de integración no encontrado' });
+  if (viaje.estado !== 'pendiente') return res.status(409).json({ mensaje: 'El conductor ya aceptó el viaje en Sur Track: los clientes no se pueden cambiar' });
+  const clientes = await asignarClientesYRuta(viaje, viaje.owner, req.body?.clientes, req.body?.rutaSugerida);
+  res.json({ viajeId: String(id), clientes, rutaGenerada: !!viaje.rutaGuardada?.coordenadas?.length });
 }));
 
 // POST /api/integracion/viajes/:viajeId/finalizar → deja de rastrear: si no se había aceptado se elimina,
@@ -142,6 +205,7 @@ router.post('/viajes/:viajeId/finalizar', seguro(async (req, res) => {
   const viaje = await Viaje.findOne({ _id: id, 'integracion.origen': 'translogistica' });
   if (!viaje) return res.status(404).json({ mensaje: 'Viaje de integración no encontrado' });
   if (viaje.estado === 'pendiente') {
+    await Cliente.deleteMany({ owner: viaje.owner, codigoViaje: viaje.codigo, _id: { $in: viaje.clientes || [] } });
     await viaje.deleteOne();
     return res.json({ viajeId: String(id), estado: 'eliminado' });
   }
