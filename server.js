@@ -53,6 +53,8 @@ app.use('/api/notificaciones', protect, require('./routes/notificacionRoutes'));
 // 📖 Manual de usuario: GET público (sin protect); las rutas de escritura
 // están protegidas dentro del propio archivo (protect + solo admin).
 app.use('/api/manual',         require('./routes/manualRoutes'));
+// 🔗 Integración con Translogística del Sur (servidor a servidor, clave INTEGRACION_CLAVE)
+app.use('/api/integracion',    require('./routes/integracionRoutes'));
 
 app.get('/', (_req, res) => {
   res.json({ message: 'Servidor Cooespatrans funcionando correctamente' });

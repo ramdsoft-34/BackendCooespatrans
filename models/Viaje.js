@@ -84,12 +84,21 @@ const viajeSchema = new mongoose.Schema({
     fechaSubida:    { type: Date, default: Date.now },
     subidoPor:      String,
     tamanio:        Number
-  }]
+  }],
+
+  // Viaje creado por la integración con Translogística del Sur para rastrearlo con Sur Track
+  // (vacío en los viajes normales de Cooespatrans)
+  integracion: {
+    origen:     { type: String },
+    referencia: { type: String },
+    creado:     { type: Date },
+  },
 });
 
 // Índice para consultas frecuentes de viajes por conductor
 viajeSchema.index({ choferAsignado: 1, estado: 1 });
 viajeSchema.index({ owner: 1, codigo: 1 }, { unique: true });
 viajeSchema.index({ owner: 1, estado: 1 });
+viajeSchema.index({ 'integracion.referencia': 1 }, { sparse: true });
 
 module.exports = mongoose.model('Viaje', viajeSchema);
