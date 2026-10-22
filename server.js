@@ -13,14 +13,10 @@ const app = express();
 const corsOptions = {
   origin: [
     'https://www.cooespatrans.com',
-    'https://cooespatrans.com',
-    // Orígenes extra opcionales (p. ej. http://localhost:3000 en desarrollo),
-    // separados por coma en CORS_EXTRA_ORIGINS del .env
-    ...String(process.env.CORS_EXTRA_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean),
+    'https://cooespatrans.com'
   ],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  exposedHeaders: ['Content-Disposition'],
   credentials: true,
 };
 
@@ -57,10 +53,6 @@ app.use('/api/notificaciones', protect, require('./routes/notificacionRoutes'));
 // 📖 Manual de usuario: GET público (sin protect); las rutas de escritura
 // están protegidas dentro del propio archivo (protect + solo admin).
 app.use('/api/manual',         require('./routes/manualRoutes'));
-// 🚚 Logística (bitácora, relación de fletes, maestros) y despacho RNDC:
-// protegidas dentro de cada archivo (roles admin y coordLogistico).
-app.use('/api/logistica',      require('./routes/logisticaRoutes'));
-app.use('/api/rndc',           require('./routes/rndcRoutes'));
 
 app.get('/', (_req, res) => {
   res.json({ message: 'Servidor Cooespatrans funcionando correctamente' });

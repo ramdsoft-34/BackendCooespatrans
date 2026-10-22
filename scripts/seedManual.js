@@ -127,51 +127,6 @@ const MANUAL_WEB = [
       paso(0, '1. Enviar un mensaje', 'Abre el chat desde el ícono de mensajes, elige al conductor y escribe — el mensaje le llega como notificación en su app.'),
     ],
   },
-  {
-    titulo: 'Bitácora de viajes',
-    icono: 'NotebookPen',
-    descripcion: 'Registrar cada cargue con su tarifa, flete, anticipo, saldo y utilidad',
-    pasos: [
-      paso(0, '1. Registrar un viaje', 'En Bitácora > Registro de viajes pulsa "Nuevo viaje". Elige la empresa y el destino: la tarifa, el flete, el anticipo habitual y el peso se llenan solos. Al escribir el conductor se completa su placa. El número de registro y la fecha se asignan automáticamente.'),
-      paso(1, '2. Buscar, editar o eliminar', 'Filtra por empresa, fechas o texto. El lápiz abre el viaje para corregirlo (conserva su número y fecha) y la papelera lo elimina sin afectar la numeración de los demás.'),
-      paso(2, '3. Hojas por empresa y exportes', 'En "Por empresa" ves los totales de cada cliente (tarifa, flete, anticipos, saldo y utilidad) y descargas su hoja en PDF o Excel. Desde el registro descargas la bitácora completa.'),
-      paso(3, '4. Reporte de WhatsApp y correo de salida', 'En "Reportes y envíos" genera un mensaje por empresa con los vehículos del día (cópialo o ábrelo en WhatsApp y márcalo como reportado) y envía el correo de autorización de salida de Corbeta.'),
-      paso(4, '5. Enviar manifiestos y nuevo periodo', 'Marca los viajes en la columna "Enviar" y envía sus manifiestos por correo a la empresa, o adjunta los PDF. Al terminar el periodo usa "Iniciar nuevo periodo": los viajes quedan archivados como respaldo y la numeración vuelve a 1.'),
-    ],
-  },
-  {
-    titulo: 'Relación de fletes',
-    icono: 'Receipt',
-    descripcion: 'Facturación por empresa, pago a conductores y utilidad',
-    pasos: [
-      paso(0, '1. Elegir empresa y periodo', 'En el panel elige la empresa y escribe el periodo (ej. 1-15 de septiembre de 2026); el mes define el número del archivo.'),
-      paso(1, '2. Registrar cargues', 'Pulsa "Registrar cargue": placa (busca por placa o nombre), destino, fecha, cantidad y si lleva auxiliar. La tabla calcula tarifa, total cobrado, flete y auxiliar pagados y la utilidad.'),
-      paso(2, '3. Generar los informes', 'Descarga la relación para facturación, la relación de pago a conductores y el informe de utilidad con gráficas (Excel o PDF). Puedes marcar los cargues como facturados.'),
-      paso(3, '4. Empezar una relación nueva', '"Nueva relación" deja la tabla en blanco; los cargues anteriores quedan archivados.'),
-    ],
-  },
-  {
-    titulo: 'Despacho RNDC',
-    icono: 'FileCheck2',
-    descripcion: 'Remesas y manifiestos ante el Ministerio de Transporte',
-    pasos: [
-      paso(0, '1. Traer viajes', 'En RNDC > Viajes por enviar pulsa "Traer viajes de la bitácora", elige la fecha y marca los viajes. Se completan la cédula, el titular, el PBV, los códigos DANE y la sede del destinatario.'),
-      paso(1, '2. Revisar y corregir', 'Revisa los avisos en rojo, corrige con el lápiz y usa el ojo para ver exactamente lo que se enviará. "Validar conductores" compara nombres y cédulas con el maestro del RNDC.'),
-      paso(2, '3. Numerar y enviar', 'Marca los viajes; los números de remesa y manifiesto se asignan en orden desde el consecutivo indicado. En modo PRUEBA solo se simula; en modo REAL escribe la clave del RNDC (no se guarda) y envía.'),
-      paso(3, '4. Manifiestos PDF y correos', 'En "Manifiestos PDF" ves e imprimes cada manifiesto aceptado con su código QR, descargas todos en un ZIP y envías los PDF pendientes a cada empresa.'),
-    ],
-  },
-  {
-    titulo: 'Maestros de logística',
-    icono: 'Database',
-    descripcion: 'Empresas, tarifas, conductores y carga de la plantilla de Excel',
-    pasos: [
-      paso(0, '1. Empresas y correos', 'Registra cada empresa con su NIT, a quién van dirigidos los correos y sus destinatarios.'),
-      paso(1, '2. Tarifas por destino', 'Elige la empresa y registra lo que se cobra y lo que se paga al conductor por cada destino. "Guardar" actualiza el destino si ya existe.'),
-      paso(2, '3. Conductores y vehículos', 'Registra conductor, vehículo, tenedor y datos de pago. Al salir de la cédula o la placa se completan datos desde el maestro del RNDC; los vencimientos próximos se resaltan.'),
-      paso(3, '4. Importar la plantilla', '"Importar plantilla" carga la información del Excel de viajes sin borrar ni duplicar lo existente.'),
-    ],
-  },
 ];
 
 // ═════════════════════════════════════════════
