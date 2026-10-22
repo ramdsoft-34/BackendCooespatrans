@@ -33,6 +33,15 @@ const oid = (v) => (mongoose.isValidObjectId(v) ? new mongoose.Types.ObjectId(St
 const placaNorm = (p) => String(p || '').toUpperCase().replace(/[\s-]/g, '');
 const cedulaNorm = (c) => String(c || '').replace(/\D/g, '');
 const ACTIVOS = ['pendiente', 'aceptado'];
+const palabras = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase()
+  .split(/[^A-Z0-9]+/).filter(w => w.length > 3 && !['NARINO', 'PASTO', 'S.A.S', 'LTDA'].includes(w));
+// Bodega del usuario de la integración cuyo nombre comparte una palabra con la empresa cliente
+async function bodegaDeEmpresa(owner, empresa) {
+  const buscadas = palabras(empresa);
+  if (!owner || !buscadas.length) return null;
+  const bodegas = await db().collection('bodegas').find({ owner }, { projection: { nombre: 1 } }).toArray();
+  return bodegas.find(b => palabras(b.nombre).some(w => buscadas.includes(w)))?._id || null;
+}
 
 const presentarChofer = (c) => ({
   choferId: String(c._id), nombre: c.nombre || '', cedula: cedulaNorm(c.cedula), telefono: c.telefono || '',
@@ -88,10 +97,11 @@ router.get('/rastreo/:viajeId', seguro(async (req, res) => {
 }));
 
 // POST /api/integracion/viajes → crea el viaje que el conductor verá en Sur Track para iniciar el rastreo.
-// Body: { referencia, codigo, placa?, cedula?, valorFlete, anticipo? }. Si ya existe uno con la misma referencia, lo devuelve.
+// Body: { referencia, codigo, placa?, cedula?, valorFlete, anticipo?, empresa? }. La bodega se elige por el nombre
+// de la empresa (p. ej. «Corbeta» → CORBETA PASTO); si no coincide ninguna, se usa INTEGRACION_BODEGA_ID. Si ya existe uno con la misma referencia, lo devuelve.
 router.post('/viajes', seguro(async (req, res) => {
   const owner = oid(process.env.INTEGRACION_OWNER_ID);
-  const bodega = oid(process.env.INTEGRACION_BODEGA_ID);
+  const bodega = (await bodegaDeEmpresa(owner, req.body?.empresa)) || oid(process.env.INTEGRACION_BODEGA_ID);
   if (!owner || !bodega) return res.status(503).json({ mensaje: 'Falta configurar el usuario y la bodega de la integración' });
   const { referencia, codigo, placa, cedula } = req.body || {};
   const valorFlete = Number(req.body?.valorFlete) || 0;
