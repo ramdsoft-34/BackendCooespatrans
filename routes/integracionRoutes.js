@@ -128,12 +128,24 @@ router.get('/rastreo/:viajeId', seguro(async (req, res) => {
   ]);
   if (!viaje) return res.status(404).json({ mensaje: 'Viaje no encontrado' });
   // Estado de entrega que marca el conductor en Sur Track (colección de la app)
-  const entregas = await db().collection('clientecompletados').find({ viajeId }).project({ nombreCliente: 1, direccion: 1, estadoEntrega: 1, valorRecibido: 1, updatedAt: 1, createdAt: 1 }).toArray();
+  const entregas = await db().collection('clientecompletados').find({ viajeId }).project({ nombreCliente: 1, direccion: 1, estadoEntrega: 1, valorARecibir: 1,
+    valorRecibido: 1, justificacion: 1, fotos: 1, fechaCompletado: 1, latitud: 1, longitud: 1, conductorNombre: 1, updatedAt: 1, createdAt: 1 }).toArray();
+  // Dónde se hizo la entrega: el GPS que envía la app; si no lo trae (versiones anteriores), el punto del recorrido
+  // más cercano a la hora de la entrega (máx. 15 minutos de diferencia), marcado como aproximado
+  const lugarDe = (e) => {
+    if (Number.isFinite(e.latitud) && Number.isFinite(e.longitud)) return { lat: e.latitud, lng: e.longitud, aproximada: false };
+    const t = new Date(e.fechaCompletado || e.createdAt).getTime();
+    let mejor = null;
+    for (const p of puntos) { const d = Math.abs(new Date(p.timestamp).getTime() - t); if (!mejor || d < mejor.d) mejor = { d, p }; }
+    return mejor && mejor.d <= 15 * 60000 ? { lat: mejor.p.latitud, lng: mejor.p.longitud, aproximada: true } : null;
+  };
   const entregaDe = (c) => entregas.find(e => e.nombreCliente === [c.nombre, c.apellido].filter(Boolean).join(' ') || e.nombreCliente === c.nombre);
   res.json({
     clientes: (viaje.clientes || []).filter(Boolean).map(c => { const e = entregaDe(c); return { clienteId: String(c._id), nombre: [c.nombre, c.apellido].filter(Boolean).join(' '),
       direccion: c.direccion || '', ciudad: c.ciudad || '', telefono: c.telefono || '', factura: c.nunFactura || '', valor: c.valorARecibir || 0,
-      estadoEntrega: e?.estadoEntrega || 'pendiente', valorRecibido: e?.valorRecibido || 0, fechaEntrega: e?.updatedAt || e?.createdAt || null }; }),
+      estadoEntrega: e?.estadoEntrega || 'pendiente', valorRecibido: e?.valorRecibido || 0, fechaEntrega: e?.fechaCompletado || e?.createdAt || null,
+      entrega: e ? { lugar: lugarDe(e), observacion: e.justificacion || '', valorRecibido: e.valorRecibido || 0, valorARecibir: e.valorARecibir || 0,
+        fotos: (e.fotos || []).map(f => f.url).filter(Boolean), conductor: e.conductorNombre || '', fecha: e.fechaCompletado || e.createdAt || null } : null }; }),
     ruta: viaje.rutaGuardada?.coordenadas?.length ? { coordenadas: viaje.rutaGuardada.coordenadas.map(c => ({ lat: c.lat, lng: c.lng })),
       ordenClientes: (viaje.rutaGuardada.ordenClientes || []).map(String), distancia: viaje.rutaGuardada.distanciaTotal || 0, duracion: viaje.rutaGuardada.duracionEstimada || 0 } : null,
     viaje: { viajeId, codigo: viaje.codigo, estado: viaje.estado, fechaAceptacion: viaje.fechaAceptacion || null, fechaCompletado: viaje.fechaCompletado || null },
