@@ -88,6 +88,44 @@ async function asignarClientesYRuta(viaje, owner, clientesIn, rutaSugerida) {
   return docs.map((d, i) => ({ clienteId: String(d._id), referencia: datos[i].referencia }));
 }
 
+// ── Checklist preoperacional (diario) que el conductor diligencia en Sur Track ──
+// Vigente = el más reciente, completo y hecho HOY (hora de Colombia), igual que en la app.
+const hoyColombia = (d) => new Date(new Date(d).getTime() - 5 * 3600000).toISOString().slice(0, 10);
+function presentarChecklist(c, { conFirma = false } = {}) {
+  if (!c) return null;
+  return { checklistId: String(c._id), choferId: c.choferId, fecha: c.fechaCreacion, completo: !!c.completo,
+    vigente: !!c.completo && hoyColombia(c.fechaCreacion) === hoyColombia(Date.now()),
+    venceRevisionTecnica: c.fechaVencimientoRevisionTecnica || null,
+    documentos: c.documentos || {}, equipos: c.equipos || {}, vehiculo: c.vehiculo || {},
+    firma: c.firma ? { nombre: c.firma.choferNombre || '', cedula: c.firma.cedula || '', fecha: c.firma.fechaFirma || null,
+      dispositivo: c.firma.dispositivoTipo || '', ...(conFirma ? { imagenBase64: c.firma.imagenBase64 || '' } : {}) } : null };
+}
+async function choferPor({ cedula, placa }) {
+  const cols = db().collection('chofers');
+  const ced = cedulaNorm(cedula);
+  let chofer = ced ? await cols.findOne({ cedula: { $in: [ced, String(cedula || '').trim()] } }) : null;
+  if (!chofer && placa) chofer = await cols.findOne({ 'vehiculo.placa': placaNorm(placa) });
+  return chofer;
+}
+
+// GET /api/integracion/checklist?cedula=&placa= → último checklist del conductor y si está vigente hoy
+router.get('/checklist', seguro(async (req, res) => {
+  const chofer = await choferPor(req.query);
+  if (!chofer) return res.status(404).json({ mensaje: 'El conductor o la placa no están registrados en Sur Track' });
+  const c = await db().collection('checklists').findOne({ choferId: String(chofer._id) }, { sort: { fechaCreacion: -1 }, projection: { 'firma.imagenBase64': 0 } });
+  res.json({ chofer: presentarChofer(chofer), checklist: presentarChecklist(c) });
+}));
+
+// GET /api/integracion/checklist/:id → un checklist completo con la imagen de la firma (para verlo o en PDF)
+router.get('/checklist/:id', seguro(async (req, res) => {
+  const id = oid(req.params.id);
+  if (!id) return res.status(400).json({ mensaje: 'Checklist inválido' });
+  const c = await db().collection('checklists').findOne({ _id: id });
+  if (!c) return res.status(404).json({ mensaje: 'Checklist no encontrado' });
+  const chofer = mongoose.isValidObjectId(c.choferId) ? await db().collection('chofers').findOne({ _id: new mongoose.Types.ObjectId(c.choferId) }) : null;
+  res.json({ chofer: chofer ? presentarChofer(chofer) : null, checklist: presentarChecklist(c, { conFirma: true }) });
+}));
+
 // GET /api/integracion/vehiculos → conductores de Sur Track con su vehículo (sin contraseñas ni tokens)
 router.get('/vehiculos', seguro(async (_req, res) => {
   const lista = await db().collection('chofers')
